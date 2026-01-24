@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+# Target path where old files/directories will be moved
+TARGET_PATH = "/Volumes/big1/old"
+
+# List of (directory_name, days_threshold) tuples
+# Files/directories older than the threshold will be moved
+# Directory names are relative to HOME
+DIRECTORIES_TO_CLEAN = [
+    ("Downloads", 30),
+    ("Desktop", 30),
+    ("Documents", 30),
+    ("src", 120),
+]
+
+# =============================================================================
+
+HOME = Path.home()
+
+
+def get_newest_mtime(path: Path, cutoff: datetime) -> datetime | None:
+    """
+    For a file, return its mtime.
+    For a directory, return the newest mtime of any file/dir within it (recursively).
+
+    Returns None early if any file is newer than cutoff (optimization).
+    """
+    try:
+        newest = datetime.fromtimestamp(path.stat().st_mtime)
+    except (OSError, PermissionError):
+        return None
+
+    # Early exit: if the item itself is newer than cutoff, no need to scan
+    if newest >= cutoff:
+        return None
+
+    if path.is_dir():
+        try:
+            for item in path.rglob("*"):
+                try:
+                    item_mtime = datetime.fromtimestamp(item.stat().st_mtime)
+                    if item_mtime >= cutoff:
+                        # Found something newer than cutoff, won't be moved
+                        return None
+                    if item_mtime > newest:
+                        newest = item_mtime
+                except (OSError, PermissionError):
+                    continue
+        except (OSError, PermissionError):
+            return None
+
+    return newest
+
+
+def move_item(src: Path, dest: Path) -> None:
+    """
+    Move a file or directory to destination.
+    Uses rsync for ExFAT compatibility (no extended attributes).
+    """
+    if dest.exists():
+        raise FileExistsError(f"Destination already exists: {dest}")
+
+    # Use rsync for better ExFAT compatibility
+    # -a = archive mode, --no-perms = don't preserve permissions (ExFAT doesn't support)
+    # --remove-source-files removes files after copy (but not dirs)
+    result = subprocess.run(
+        ["rsync", "-a", "--no-perms", "--no-owner", "--no-group",
+         str(src) + ("/" if src.is_dir() else ""),
+         str(dest)],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        raise OSError(f"rsync failed: {result.stderr}")
+
+    # rsync --remove-source-files only removes files, not directories
+    # So we need to remove the source ourselves
+    if src.is_dir():
+        shutil.rmtree(src)
+    else:
+        src.unlink()
+
+
+def clean_directory(source_dir: str, days_threshold: int) -> None:
+    """
+    Move files and directories older than days_threshold from source_dir
+    to TARGET_PATH/source_dir/YYYY/MM - Month/
+    """
+    source_path = HOME / source_dir
+
+    # Follow symlinks to get real path
+    if source_path.is_symlink():
+        source_path = source_path.resolve()
+
+    if not source_path.exists():
+        print(f"Skipping {source_dir}: directory does not exist")
+        return
+
+    cutoff = datetime.now() - timedelta(days=days_threshold)
+
+    items = list(source_path.iterdir())
+    total = len(items)
+    moved = 0
+
+    for i, item in enumerate(items, 1):
+        name = item.name
+        # Progress indicator
+        sys.stdout.write(f"\r  [{i}/{total}] Checking: {name[:50]:<50}")
+        sys.stdout.flush()
+
+        try:
+            newest_mtime = get_newest_mtime(item, cutoff)
+
+            # None means it's newer than cutoff or had an error
+            if newest_mtime is None:
+                continue
+
+            month_dir = newest_mtime.strftime("%Y/%m - %B")
+            output_dir = Path(TARGET_PATH) / source_dir / month_dir
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            dest = output_dir / item.name
+            sys.stdout.write(f"\r  [{i}/{total}] Moving: {name[:50]:<50}\n")
+            sys.stdout.flush()
+            move_item(item, dest)
+            moved += 1
+
+        except FileExistsError as e:
+            sys.stdout.write(f"\r  [{i}/{total}] Skipped (exists): {name[:40]:<40}\n")
+            sys.stdout.flush()
+            continue
+        except (OSError, PermissionError) as e:
+            sys.stdout.write(f"\r  [{i}/{total}] Error: {name[:40]} - {e}\n")
+            sys.stdout.flush()
+            continue
+
+    sys.stdout.write(f"\r  Done: {moved} items moved out of {total} checked{' ' * 30}\n")
+    sys.stdout.flush()
+
+
+def main():
+    for directory, days in DIRECTORIES_TO_CLEAN:
+        print(f"\nCleaning {directory} (threshold: {days} days)...")
+        clean_directory(directory, days)
+
+
+if __name__ == "__main__":
+    main()
