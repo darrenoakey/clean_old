@@ -13,14 +13,16 @@ from pathlib import Path
 # Target path where old files/directories will be moved
 TARGET_PATH = "/Volumes/big1/old"
 
-# List of (directory_name, days_threshold) tuples
+# List of (directory_name, days_threshold, flat) tuples
 # Files/directories older than the threshold will be moved
 # Directory names are relative to HOME
+# flat=True: archive directly into TARGET_PATH/directory_name/
+# flat=False: archive into TARGET_PATH/directory_name/YYYY/MM - Month/
 DIRECTORIES_TO_CLEAN = [
-    ("Downloads", 30),
-    ("Desktop", 30),
-    ("Documents", 30),
-    ("src", 120),
+    ("Downloads", 30, False),
+    ("Desktop", 30, False),
+    ("Documents", 30, False),
+    ("src", 120, True),
 ]
 
 # =============================================================================
@@ -92,10 +94,11 @@ def move_item(src: Path, dest: Path) -> None:
         src.unlink()
 
 
-def clean_directory(source_dir: str, days_threshold: int) -> None:
+def clean_directory(source_dir: str, days_threshold: int, flat: bool = False) -> None:
     """
-    Move files and directories older than days_threshold from source_dir
-    to TARGET_PATH/source_dir/YYYY/MM - Month/
+    Move files and directories older than days_threshold from source_dir.
+    If flat=True, moves to TARGET_PATH/source_dir/ directly.
+    Otherwise, moves to TARGET_PATH/source_dir/YYYY/MM - Month/.
     """
     source_path = HOME / source_dir
 
@@ -126,8 +129,11 @@ def clean_directory(source_dir: str, days_threshold: int) -> None:
             if newest_mtime is None:
                 continue
 
-            month_dir = newest_mtime.strftime("%Y/%m - %B")
-            output_dir = Path(TARGET_PATH) / source_dir / month_dir
+            if flat:
+                output_dir = Path(TARGET_PATH) / source_dir
+            else:
+                month_dir = newest_mtime.strftime("%Y/%m - %B")
+                output_dir = Path(TARGET_PATH) / source_dir / month_dir
             output_dir.mkdir(parents=True, exist_ok=True)
 
             dest = output_dir / item.name
@@ -150,9 +156,9 @@ def clean_directory(source_dir: str, days_threshold: int) -> None:
 
 
 def main():
-    for directory, days in DIRECTORIES_TO_CLEAN:
-        print(f"\nCleaning {directory} (threshold: {days} days)...")
-        clean_directory(directory, days)
+    for directory, days, flat in DIRECTORIES_TO_CLEAN:
+        print(f"\nCleaning {directory} (threshold: {days} days, {'flat' if flat else 'dated'})...")
+        clean_directory(directory, days, flat)
 
 
 if __name__ == "__main__":
