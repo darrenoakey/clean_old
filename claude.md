@@ -24,11 +24,13 @@ When checking if a directory should be moved, stops scanning as soon as any file
 ### Configuration
 All configuration is at the top of `src/clean_old`:
 - `TARGET_PATH`: Where to move old items
-- `DIRECTORIES_TO_CLEAN`: List of (directory, days_threshold) tuples
+- `DIRECTORIES_TO_CLEAN`: List of (directory, days_threshold, flat) tuples
+  - `flat=True`: archive directly into `TARGET_PATH/directory/` (used for `src`)
+  - `flat=False`: archive into `TARGET_PATH/directory/YYYY/MM - Month/` (used for Downloads, Desktop, Documents)
 
 ### Directory Handling
 - Recursively scans directories to find the **newest** mtime of any file within
-- Uses the newest mtime to determine the YYYY/MM folder for archiving
+- Uses the newest mtime to determine the YYYY/MM folder for archiving (unless flat mode)
 - Follows symlinks to get real paths
 - Only operates on items in the root of each source directory (no recursive cleanup)
 
