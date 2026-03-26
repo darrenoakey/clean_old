@@ -98,3 +98,7 @@ Run weekly on Sundays at 2 AM:
 ```bash
 0 2 * * 0 /path/to/clean_old
 ```
+
+## License
+
+This project is licensed under [CC BY-NC 4.0](https://darren-static.waft.dev) - free to use and modify, but no commercial use without permission.
